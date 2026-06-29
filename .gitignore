@@ -1,0 +1,5 @@
+session.json
+build/
+*.bin
+secrets.h
+.DS_Store
