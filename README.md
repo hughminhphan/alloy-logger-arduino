@@ -103,7 +103,8 @@ Then compact **JSONL** data, wall-clock-timestamped so channels align with no ex
 ```json
 {"ch":"env","t_ns":1782715694000000000,"temp_c":22.4,"humidity":51.2}
 ```
-`.jsonl` ingests natively into Alloy's queryable tables — replay it, or query with SQL / DuckDB.
+Each power-on uploads into its **own subfolder** `<meshPath>/<session>/`, so every run is a distinct
+mission in Alloy. `.jsonl` ingests natively into queryable tables — replay it, or query with SQL / DuckDB.
 
 ---
 

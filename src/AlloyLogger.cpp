@@ -142,22 +142,25 @@ void AlloyLogger::taskLoop() {
   while (time(nullptr) < 1700000000) vTaskDelay(pdMS_TO_TICKS(200));  // wait for SNTP (SigV4 needs UTC)
   _session = (uint32_t)time(nullptr);
 
+  // Each power-on gets its OWN folder under meshPath (a separate mission in Alloy).
+  String sessionMesh = String(_meshPath) + "/" + String(_session);
+
   // upload the semantics sidecar first (Alloy ingests metadata before data)
   String meta = buildMetaJson();
-  char fn[64]; snprintf(fn, sizeof(fn), "%s_%u_meta.json", _devId, _session);
+  char fn[48]; snprintf(fn, sizeof(fn), "%s_meta.json", _devId);
   for (int a = 0; a <= 3; a++) {
-    if (_up.uploadBuffer((const uint8_t*)meta.c_str(), meta.length(), fn, _meshPath)) break;
+    if (_up.uploadBuffer((const uint8_t*)meta.c_str(), meta.length(), fn, sessionMesh.c_str())) break;
     vTaskDelay(pdMS_TO_TICKS(1000UL << a));
   }
 
   Buf* b;
   for (;;) {
     if (xQueueReceive(_pendingQ, &b, pdMS_TO_TICKS(250)) == pdTRUE) {
-      snprintf(fn, sizeof(fn), "%s_%u_%lu.jsonl", _devId, _session, (unsigned long)_seq++);
+      snprintf(fn, sizeof(fn), "%s_%lu.jsonl", _devId, (unsigned long)_seq++);
       bool ok = false;
       for (int a = 0; a <= 4 && !ok; a++) {
         if (a) vTaskDelay(pdMS_TO_TICKS(1000UL << (a - 1)));
-        ok = _up.uploadBuffer((const uint8_t*)b->data, b->len, fn, _meshPath);
+        ok = _up.uploadBuffer((const uint8_t*)b->data, b->len, fn, sessionMesh.c_str());
       }
       if (ok) _uploaded++; else _failed++;
       b->len = 0; xQueueSend(_freeQ, &b, 0);
