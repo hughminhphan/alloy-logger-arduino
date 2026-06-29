@@ -8,10 +8,11 @@ intermediary. Scope: numeric control-loop data only (no camera, no audio), so a 
 `esp_timer` ns timestamp = everything aligned by construction).
 
 ## Status
-- ✅ Alloy upload path **verified end-to-end** — a SigV4 PUT (identical signing to `AlloyUploader.h`)
-  lands a file in Alloy Mesh Storage (Cloudflare R2, path-style, region `auto`, `UNSIGNED-PAYLOAD`).
+- ✅ **Verified live on real hardware (2026-06-29):** a classic ESP32 flashed with the smoke test
+  connected WiFi → SNTP → `upload-session` → SigV4 PUT → landed `smoke.jsonl` in Alloy Mesh Storage
+  (Cloudflare R2, path-style, region `auto`, `UNSIGNED-PAYLOAD`). Serial: `UPLOAD OK`.
 - ✅ Both sketches compile clean on `esp32:esp32:esp32` (main 84% flash, smoke 83%).
-- ⏳ On-device flash pending WiFi creds + board confirmation.
+- ⏳ Full recorder (`esp32-robolog.ino`) needs an SPI SD card wired + real sensors in the `// TODO` blocks.
 
 ## Files
 | File | Role |
