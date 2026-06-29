@@ -13,7 +13,7 @@
 
 #pragma once
 #include <Arduino.h>
-#include <SD.h>
+#include <FS.h>            // filesystem-agnostic: works on SD, LittleFS, etc.
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -40,8 +40,8 @@ struct RoboLogRecord { uint16_t channel; uint16_t len; uint64_t ts_ns; uint8_t d
 
 class RoboLog {
 public:
-  bool begin(const char* path, int writerCore = 1, uint32_t flushEveryN = 64) {
-    _file = SD.open(path, FILE_WRITE);
+  bool begin(fs::FS& fs, const char* path, int writerCore = 1, uint32_t flushEveryN = 64) {
+    _file = fs.open(path, FILE_WRITE);
     if (!_file) return false;
     _flushEvery = flushEveryN;
     _queue = xQueueCreate(ROBOLOG_QUEUE_DEPTH, sizeof(RoboLogRecord));

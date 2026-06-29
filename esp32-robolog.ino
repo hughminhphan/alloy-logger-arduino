@@ -9,13 +9,22 @@
 // Config (WiFi + Alloy key) lives in secrets.h (gitignored) — copy secrets.h.example.
 
 #include <WiFi.h>
-#include <SD.h>
-#include <SPI.h>
 #include "secrets.h"
+
+// Storage backend: 0 = on-chip LittleFS (NO SD card needed), 1 = SPI SD card.
+#define USE_SD 0
+#if USE_SD
+  #include <SD.h>
+  #include <SPI.h>
+  #define LOGFS SD
+  #define SD_CS 5
+#else
+  #include <LittleFS.h>
+  #define LOGFS LittleFS
+#endif
+
 #include "RoboLog.h"
 #include "AlloyUploader.h"
-
-#define SD_CS 5
 
 RoboLog logger;
 AlloyUploader alloy;
@@ -23,9 +32,11 @@ AlloyUploader alloy;
 uint16_t CH_IMU, CH_M0, CH_M1, CH_ENC, CH_ANALOG, CH_ESTOP, CH_MODE;
 
 static const uint32_t CONTROL_HZ = 1000;               // controller rate
-static const uint32_t LOG_HZ     = 200;                // recorder rate (decimated; keeps JSONL light)
+static const uint32_t LOG_HZ     = 100;                // recorder rate (decimated; keeps JSONL light)
 static const uint32_t LOG_EVERY  = CONTROL_HZ / LOG_HZ;
-static const uint32_t RUN_SECONDS = 60;                // demo: record 60s then upload
+// LittleFS holds ~1.4MB on a 4MB board, so a no-SD run is capped (~10s here ≈ 0.4MB).
+// Set USE_SD 1 (or stream in chunks) to lift the cap.
+static const uint32_t RUN_SECONDS = 10;
 
 #pragma pack(push,1)
 struct ImuRec   { float ax,ay,az,gx,gy,gz; };
@@ -37,8 +48,12 @@ const char* RUN_FILE = "/run.jsonl";
 
 void setup() {
   Serial.begin(115200);
+#if USE_SD
   SPI.begin();
   if (!SD.begin(SD_CS)) { Serial.println("SD fail"); while(1) delay(1000); }
+#else
+  if (!LittleFS.begin(true)) { Serial.println("LittleFS fail"); while(1) delay(1000); }
+#endif
 
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   while (WiFi.status() != WL_CONNECTED) { delay(250); Serial.print("."); }
@@ -46,7 +61,7 @@ void setup() {
   while (time(nullptr) < 1700000000) delay(100);
   alloy.begin(ALLOY_DATA_URL, ALLOY_API_KEY);
 
-  if (!logger.begin(RUN_FILE, /*writerCore=*/1)) { Serial.println("log fail"); while(1) delay(1000); }
+  if (!logger.begin(LOGFS, RUN_FILE, /*writerCore=*/1)) { Serial.println("log fail"); while(1) delay(1000); }
   CH_IMU    = logger.channel("imu",     "ax:f32,ay:f32,az:f32,gx:f32,gy:f32,gz:f32");
   CH_M0     = logger.channel("motor0",  "cmd:f32,current:f32,enc:i32");
   CH_M1     = logger.channel("motor1",  "cmd:f32,current:f32,enc:i32");
@@ -99,6 +114,6 @@ void controlTask(void*) {
   // ---- finalize + upload directly to Alloy ----
   Serial.printf("run done, dropped=%u — finalizing\n", logger.dropped());
   logger.end();
-  Serial.println(alloy.uploadFile(SD, RUN_FILE, MESH_PATH) ? "uploaded to Alloy" : "upload FAILED");
+  Serial.println(alloy.uploadFile(LOGFS, RUN_FILE, MESH_PATH) ? "uploaded to Alloy" : "upload FAILED");
   vTaskDelete(nullptr);
 }
