@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AlloyLogger — Stream robot telemetry to the cloud in 10 lines</title>
+<title>AlloyLogger · the easiest telemetry layer for your microcontroller</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -197,7 +197,8 @@
 <!-- HERO -->
 <header class="hero">
   <div class="wrap">
-    <h1>Stream robot telemetry<br>to the cloud in <span class="accent">10 lines.</span></h1>
+    <h1>The easiest telemetry layer<br>for your <span class="accent">microcontroller.</span></h1>
+    <p class="sub">Three extra lines of code, and every sensor, GPIO, and motor streams to the cloud. Automatically, every run. So when your robot breaks, the data is already there.</p>
     <div class="cta-row">
       <a class="btn lg" href="https://usealloy.ai">Start streaming free →</a>
       <a class="btn lg ghost" href="https://github.com/hughminhphan/alloy-logger-arduino">★ View on GitHub</a>
@@ -256,8 +257,8 @@
 <section class="block framed" id="how">
   <div class="wrap">
     <span class="kicker">How it works</span>
-    <h2 style="margin-top:18px">One <span class="mono" style="font-size:.8em">memcpy</span> on your loop.<br>The cloud handles the rest.</h2>
-    <p class="lead">Your control loop never waits on the network. <span class="accent">log()</span> drops the record into a RAM buffer in microseconds; a background task on a separate core does the TLS upload.</p>
+    <h2 style="margin-top:18px">Set and forget.<br>Every run is already in the cloud.</h2>
+    <p class="lead">Connect WiFi and AlloyLogger streams everything you log in the background: every GPIO, sensor, and motor, on one timeline, across every run and every version of your code. No serial monitor. No SD card. Nothing to babysit.</p>
 
     <div class="flowdiagram"><svg viewBox="0 0 1000 420" role="img" aria-label="ESP32 streaming its sensor channels into Alloy">
   <!-- ESP32-DevKitC board (source, left) -->
@@ -288,7 +289,7 @@
 <section class="block framed" id="setup">
   <div class="wrap">
     <span class="kicker">Setup</span>
-    <h2 style="margin-top:18px">From zero to streaming in four steps.</h2>
+    <h2 style="margin-top:18px">From breadboard to cloud in four steps.</h2>
     <div class="steps">
       <div class="step">
         <div class="num">1</div>
@@ -310,8 +311,8 @@
       <div class="step">
         <div class="num">3</div>
         <div>
-          <h3>Drop in ten lines</h3>
-          <p>Connect WiFi, call <span class="mono">begin()</span> with your key and a mesh path, then log <span class="mono">name → value</span> pairs anywhere in your loop.</p>
+          <h3>Add three lines</h3>
+          <p>Connect WiFi, call <span class="mono">begin()</span> with your key and a mesh path, then log <span class="mono">name → value</span> pairs anywhere in your loop. That is the whole integration.</p>
           <pre>alloy.<span class="accent">wifi</span>("ssid", "pass");
 alloy.<span class="accent">begin</span>("ALLOY_API_KEY", "robots/sbr");
 alloy.<span class="accent">log</span>("env").<span class="accent">set</span>("temp_c", t).<span class="accent">set</span>("humidity", h);</pre>
@@ -320,8 +321,8 @@ alloy.<span class="accent">log</span>("env").<span class="accent">set</span>("te
       <div class="step">
         <div class="num">4</div>
         <div>
-          <h3>Query it back</h3>
-          <p>Each power-on becomes its own mission folder. <span class="mono">.csv</span> ingests natively into queryable tables — replay it, or hit it with SQL / DuckDB.</p>
+          <h3>Query it, or just ask</h3>
+          <p>Every run lands as its own queryable table. Hit it with SQL or DuckDB, or connect Claude or ChatGPT over MCP and ask it straight: why did my robot fall this time, and has it happened before?</p>
           <pre><span class="prompt">SELECT</span> t_ns, heading <span class="prompt">FROM</span> bno055 <span class="prompt">WHERE</span> roll &gt; 1.0;</pre>
         </div>
       </div>
@@ -335,7 +336,7 @@ alloy.<span class="accent">log</span>("env").<span class="accent">set</span>("te
   <div class="wrap">
     <span class="kicker" style="margin-bottom:20px">Get started</span>
     <h2>Your robot is generating data right now.<br>Start streaming it.</h2>
-    <p>Ten lines between your robot and a queryable cloud table. Free to start.</p>
+    <p>Open source, and free for your first 10 GB. That is more than enough to log every run, then ask your data why it broke.</p>
     <div class="cta-row">
       <a class="btn lg" href="https://usealloy.ai">Start streaming free →</a>
       <a class="btn lg ghost" href="https://github.com/hughminhphan/alloy-logger-arduino">★ Star on GitHub</a>
