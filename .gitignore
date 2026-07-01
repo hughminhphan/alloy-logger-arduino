@@ -3,3 +3,11 @@ build/
 *.bin
 secrets.h
 .DS_Store
+
+# Local working notes (keep out of the public site repo)
+.obsidian/
+NOTES.md
+COMPETITORS.md
+Launch Video.md
+Landing page render.md
+Landing page structure.md
