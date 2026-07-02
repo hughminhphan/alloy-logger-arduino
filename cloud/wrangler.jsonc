@@ -3,9 +3,8 @@
   "name": "alloylogger-cloud",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
-  // Custom domain provisions automatically once the alloylogger.com zone is on Cloudflare.
-  // Until the zone move completes, deploys go to workers.dev (uncomment after DNS cutover).
-  // "routes": [{ "pattern": "ingest.alloylogger.com", "custom_domain": true }],
+  "routes": [{ "pattern": "ingest.alloylogger.com", "custom_domain": true }],
+  // workers.dev stays enabled: devices flashed before the custom domain existed point here.
   "workers_dev": true,
   "durable_objects": {
     "bindings": [{ "name": "SESSION_DO", "class_name": "SessionDO" }]
