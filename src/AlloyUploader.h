@@ -49,6 +49,11 @@ private:
   String _bucket, _endpoint, _region, _prefix, _ak, _sk, _tok, _meshCached;
   bool _insecure = false;
   bool _haveSession = false; time_t _sessAt = 0;
+  // Persistent keep-alive connection + HTTPClient for PUTs: a verified TLS handshake costs ~2s
+  // on a classic ESP32, so per-file reconnects can't keep up with multiple channels flushing
+  // every few seconds. Both must persist — a destructed HTTPClient stops the client, and
+  // stop_ssl_socket() memsets the SSL context (dropping the CA-bundle attach callback).
+  WiFiClientSecure _cli; HTTPClient _http; bool _reuseInit = false;
 
   void setupTLS(WiFiClientSecure& cli) {
     if (_insecure) { cli.setInsecure(); return; }
@@ -124,16 +129,17 @@ private:
     String auth = "AWS4-HMAC-SHA256 Credential=" + _ak + "/" + scope
                 + ", SignedHeaders=" + sh + ", Signature=" + sigx;
 
-    WiFiClientSecure cli; setupTLS(cli);
-    HTTPClient http;
-    if (!http.begin(cli, base + canonUri)) return false;
-    http.addHeader("Authorization", auth);
-    http.addHeader("x-amz-content-sha256", ph);
-    http.addHeader("x-amz-date", amzdate);
-    http.addHeader("x-amz-security-token", _tok);
-    http.addHeader("Content-Type", contentType);
-    int code = http.sendRequest("PUT", (uint8_t*)data, len);
-    http.end();
+    setupTLS(_cli);                          // re-arm every PUT: any stop() memsets the attach cb
+    if (!_reuseInit) { _http.setReuse(true); _reuseInit = true; }
+    if (!_http.begin(_cli, base + canonUri)) return false;
+    _http.addHeader("Authorization", auth);
+    _http.addHeader("x-amz-content-sha256", ph);
+    _http.addHeader("x-amz-date", amzdate);
+    _http.addHeader("x-amz-security-token", _tok);
+    _http.addHeader("Content-Type", contentType);
+    int code = _http.sendRequest("PUT", (uint8_t*)data, len);
+    _http.end();
+    if (code < 0) _cli.stop();               // dead connection — force a fresh handshake next PUT
     return code == 200 || code == 204;
   }
 

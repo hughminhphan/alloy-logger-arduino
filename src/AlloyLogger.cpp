@@ -240,8 +240,17 @@ void AlloyLogger::commitRow(const char* chan, const char* hdr, int hlen, const c
   if (needHdr) { memcpy(b->data + b->len, hdr, hlen); b->len += hlen; b->data[b->len++] = '\n'; }
   memcpy(b->data + b->len, row, rlen); b->len += rlen; b->data[b->len++] = '\n';
 
-  if (b->len >= (_bufBytes * 9) / 10 || (millis() - s->since) >= _flushMs) {
+  // 90%-full seals unconditionally — that's genuine backpressure. A time-based flush instead
+  // claims its replacement buffer atomically (or defers): otherwise simultaneous multi-channel
+  // flushes race for one free buffer and shed each other's sealed data.
+  if (b->len >= (_bufBytes * 9) / 10) {
     seal(b); s->active = nullptr;
+  } else if ((millis() - s->since) >= _flushMs) {
+    Buf* nb;
+    if (xQueueReceive(_freeQ, &nb, 0) == pdTRUE) {
+      nb->len = 0; memcpy(nb->chan, b->chan, ALLOY_CHAN_MAX);
+      seal(b); s->active = nb; s->since = millis();
+    }
   }
   xSemaphoreGive(_mtx);
 }
@@ -348,7 +357,12 @@ void AlloyLogger::taskLoop() {
       xSemaphoreTake(_mtx, portMAX_DELAY);
       for (uint8_t i = 0; i < _nSlots; i++) {
         Slot& s = _slots[i];
-        if (s.active && s.active->len > 0 && (millis() - s.since) >= _flushMs) { seal(s.active); s.active = nullptr; }
+        if (s.active && s.active->len > 0 && (millis() - s.since) >= _flushMs) {
+          Buf* nb;                                     // claim the replacement atomically, else retry in 250ms
+          if (xQueueReceive(_freeQ, &nb, 0) != pdTRUE) continue;
+          nb->len = 0; memcpy(nb->chan, s.active->chan, ALLOY_CHAN_MAX);
+          seal(s.active); s.active = nb; s.since = millis();
+        }
       }
       xSemaphoreGive(_mtx);
     }

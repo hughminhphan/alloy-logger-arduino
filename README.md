@@ -72,7 +72,7 @@ AlloyLogger alloy;
 | `alloy.wifi(ssid, pass)` | Connect WiFi. Omit if your sketch already connected. | — |
 | `alloy.device(id, firmware)` | Device id + firmware tag (into `meta.json`). | id = chip MAC |
 | `alloy.core(c)` | Core the uploader runs on. | `0` |
-| `alloy.buffers(count, bytes)` | RAM buffer pool. | `4 × 24 KB` |
+| `alloy.buffers(count, bytes)` | RAM buffer pool. Keep count above your channel count, and the total well under half the free heap (a verified TLS handshake needs ~60 KB headroom). | `4 × 12 KB` |
 | `alloy.flushEvery(ms)` | Max time before a partial buffer is sent. | `4000` |
 | `alloy.describe(channel, field, unit, min, max, about)` | Richer semantics for Alloy AI. | — |
 | `alloy.insecure()` | Skip TLS verification (TLS-intercepting proxies etc.). | verify via Mozilla roots |

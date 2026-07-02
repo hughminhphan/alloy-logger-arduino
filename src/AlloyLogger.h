@@ -145,8 +145,11 @@ private:
   // config
   const char *_ssid = nullptr, *_pass = nullptr, *_dev = nullptr, *_fw = nullptr;
   const char *_apiKey = nullptr, *_meshPath = nullptr;
+  // 4x12KB. Two constraints: keep the pool well under half the free heap (a VERIFIED TLS
+  // handshake needs ~60KB headroom — 4x24KB starved it on a classic ESP32), and keep count
+  // above the number of concurrent channels or flushes shed buffers waiting for a free one.
   uint8_t  _nBuf = 4;
-  size_t   _bufBytes = 24 * 1024;
+  size_t   _bufBytes = 12 * 1024;
   uint32_t _flushMs = 4000;
   int      _core = 0;
   uint32_t _sampleMs = 100;
