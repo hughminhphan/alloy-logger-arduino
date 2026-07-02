@@ -10,7 +10,9 @@ Posts every <dev>_<chan>_<seq>.csv as /v1/chunk (+ meta.json as /v1/meta), then 
 import os, re, sys, urllib.request
 
 def post(url, body, headers):
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    # workers.dev bot protection 403s the default Python-urllib UA
+    req = urllib.request.Request(
+        url, data=body, headers={"User-Agent": "AlloyLoggerReplay/1.0", **headers}, method="POST")
     try:
         with urllib.request.urlopen(req) as r:
             return r.status
@@ -33,7 +35,8 @@ def main():
             chunks.append((m.group(1), m.group(2), int(m.group(3)), f))
     chunks.sort(key=lambda c: c[2])
     device = chunks[0][0]
-    session = re.search(r"(\d+)$", os.path.basename(fixtures)).group(1)
+    session = os.environ.get("REPLAY_SESSION") or re.search(
+        r"(\d+)$", os.path.basename(fixtures)).group(1)
     base_headers = {
         "Authorization": f"Bearer {key}",
         "X-Alloy-Device": device,
