@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlloyLogger — Follow one number from the pin to the prompt</title>
+<meta name="description" content="AlloyLogger is the Arduino library that streams your microcontroller into Alloy Mesh Storage. Descend the stack.">
+<style>
+  :root{
+    --blue:#025DFE;
+    --blue-soft:#3E82FF;
+    --bg:#04050a;
+    --ink:#eef2ff;
+    --dim:rgba(238,242,255,.44);
+    --faint:rgba(238,242,255,.22);
+    --mono:'SF Mono', ui-monospace, 'Menlo', 'Roboto Mono', monospace;
+    --sans:'Inter', -apple-system, 'Helvetica Neue', sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{background:var(--bg)}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:var(--bg);
+    overflow-x:hidden;
+    cursor:none;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none;cursor:none}
+  ::selection{background:var(--blue);color:#fff}
+
+  /* ---------- scroll length ---------- */
+  #scroll-space{height:800vh;pointer-events:none}
+
+  /* ---------- webgl ---------- */
+  #gl{position:fixed;inset:0;z-index:0;display:block}
+
+  /* ---------- grain ---------- */
+  #grain{position:fixed;inset:-100px;z-index:3;pointer-events:none;opacity:.07;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation:grain .6s steps(4) infinite}
+  @keyframes grain{0%{transform:translate(0,0)}25%{transform:translate(-40px,30px)}50%{transform:translate(30px,-45px)}75%{transform:translate(-25px,-20px)}100%{transform:translate(0,0)}}
+
+  /* ---------- cursor ---------- */
+  #cursor{position:fixed;z-index:60;top:0;left:0;width:10px;height:10px;border-radius:50%;
+    background:var(--ink);pointer-events:none;transform:translate(-50%,-50%);
+    mix-blend-mode:difference;transition:width .25s,height .25s,background .25s}
+  #cursor.hot{width:44px;height:44px;background:#fff}
+  #cursor-ring{position:fixed;z-index:59;top:0;left:0;width:34px;height:34px;border-radius:50%;
+    border:1px solid rgba(238,242,255,.35);pointer-events:none;transform:translate(-50%,-50%)}
+  @media (pointer:coarse){#cursor,#cursor-ring{display:none} body,a{cursor:auto}}
+
+  /* ---------- HUD frame (igloo-style corner labels) ---------- */
+  .hud{position:fixed;z-index:20;font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--dim);pointer-events:none;transition:opacity .8s}
+  #hud-tl{top:22px;left:26px;pointer-events:auto}
+  #hud-tr{top:22px;right:26px;pointer-events:auto;text-align:right}
+  #hud-bl{bottom:22px;left:26px}
+  #hud-br{bottom:22px;right:26px;text-align:right}
+  #hud-tl .word{font-size:12px;letter-spacing:.28em;color:var(--ink);font-weight:600}
+  #hud-tl .sub{margin-top:4px}
+  .hud a{pointer-events:auto;color:var(--dim);transition:color .3s}
+  .hud a:hover{color:var(--ink)}
+  #hud-tr a{display:inline-block;margin-left:22px}
+  #depth-readout{color:var(--blue-soft)}
+
+  /* ---------- progress rail ---------- */
+  #rail{position:fixed;z-index:20;right:27px;top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;gap:14px;align-items:center}
+  #rail .tick{width:4px;height:4px;border-radius:50%;background:var(--faint);transition:all .4s}
+  #rail .tick.on{background:var(--blue-soft);box-shadow:0 0 10px var(--blue)}
+  #rail .line{width:1px;height:38px;background:rgba(238,242,255,.12)}
+
+  /* ---------- preloader ---------- */
+  #loader{position:fixed;inset:0;z-index:100;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;
+    transition:opacity 1s ease,visibility 1s}
+  #loader.done{opacity:0;visibility:hidden}
+  #loader .pct{font-family:var(--mono);font-size:clamp(64px,14vw,160px);font-weight:300;
+    letter-spacing:-.04em;color:var(--ink);font-variant-numeric:tabular-nums}
+  #loader .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.4em;text-transform:uppercase;
+    color:var(--dim);margin-top:18px}
+  #loader .bar{width:180px;height:1px;background:rgba(238,242,255,.12);margin-top:26px;overflow:hidden}
+  #loader .bar i{display:block;height:100%;width:0%;background:var(--blue);transition:width .2s}
+
+  /* ---------- panels ---------- */
+  .panel{position:fixed;z-index:10;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;opacity:0;visibility:hidden}
+  .panel .inner{max-width:680px;padding:0 28px;text-align:center}
+  .panel.side .inner{text-align:left;margin-left:8vw;margin-right:auto;max-width:520px}
+  .panel.side-r .inner{text-align:left;margin-right:8vw;margin-left:auto;max-width:520px}
+
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.3em;text-transform:uppercase;
+    color:var(--blue-soft);margin-bottom:22px;display:flex;align-items:center;gap:12px}
+  .panel:not(.side):not(.side-r) .eyebrow{justify-content:center}
+  .eyebrow::before{content:"";width:7px;height:7px;background:var(--blue);display:inline-block}
+  .panel h2{font-size:clamp(30px,4.6vw,58px);font-weight:600;letter-spacing:-.03em;line-height:1.04}
+  .panel p{margin-top:22px;font-size:15px;line-height:1.75;color:var(--dim);font-weight:400}
+  .panel code{font-family:var(--mono);font-size:.92em;color:var(--ink);background:rgba(2,93,254,.14);
+    border:1px solid rgba(2,93,254,.3);padding:1px 6px;border-radius:4px}
+  .badge{display:inline-block;margin-top:26px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.1em;color:var(--blue-soft);border:1px solid rgba(2,93,254,.45);
+    padding:8px 14px;border-radius:2px;background:rgba(2,93,254,.07)}
+  .badge b{color:#fff;font-weight:600}
+
+  /* hero */
+  #p-hero h1{font-size:clamp(52px,10.5vw,150px);font-weight:700;letter-spacing:-.05em;line-height:.95}
+  #p-hero h1 .thin{font-weight:200;color:var(--dim)}
+  #p-hero .tag{margin-top:26px;font-size:clamp(14px,1.4vw,18px);color:var(--dim);letter-spacing:.01em}
+  #p-hero .tag b{color:var(--ink);font-weight:500}
+  #scroll-cue{position:fixed;z-index:20;bottom:64px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:10px;letter-spacing:.4em;text-transform:uppercase;color:var(--dim);
+    display:flex;flex-direction:column;align-items:center;gap:12px;transition:opacity .6s}
+  #scroll-cue .stem{width:1px;height:44px;background:linear-gradient(var(--blue),transparent);
+    animation:stem 1.8s ease-in-out infinite}
+  @keyframes stem{0%,100%{transform:scaleY(.4);transform-origin:top}50%{transform:scaleY(1);transform-origin:top}}
+
+  /* terminal block in the answer panel */
+  .term{margin-top:30px;text-align:left;font-family:var(--mono);font-size:12.5px;line-height:1.9;
+    border:1px solid rgba(238,242,255,.14);background:rgba(4,5,10,.72);backdrop-filter:blur(6px);
+    border-radius:8px;padding:20px 24px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .term .bar-dots{display:flex;gap:6px;margin-bottom:14px}
+  .term .bar-dots i{width:9px;height:9px;border-radius:50%;background:rgba(238,242,255,.15)}
+  .term .u{color:var(--dim)}
+  .term .c{color:var(--blue-soft)}
+  .term .a{color:var(--ink)}
+  .term .hl{color:#fff;background:rgba(2,93,254,.35);padding:0 4px;border-radius:3px}
+
+  /* CTA / footer */
+  #p-cta .inner{max-width:900px}
+  #p-cta h2{font-size:clamp(40px,7vw,96px);letter-spacing:-.045em}
+  .cta-row{margin-top:44px;display:flex;gap:18px;justify-content:center;flex-wrap:wrap;pointer-events:auto}
+  .btn{font-family:var(--mono);font-size:13px;letter-spacing:.06em;padding:16px 34px;border-radius:60px;
+    border:1px solid rgba(238,242,255,.25);color:var(--ink);transition:all .3s;display:inline-block}
+  .btn:hover{border-color:var(--ink);background:rgba(238,242,255,.06)}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn.primary:hover{background:var(--blue-soft);box-shadow:0 0 40px rgba(2,93,254,.5)}
+  #p-cta .foot{margin-top:70px;font-family:var(--mono);font-size:10px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--faint)}
+  #p-cta .foot a{color:var(--dim)} #p-cta .foot a:hover{color:var(--ink)}
+
+  @media (max-width:640px){
+    .panel.side .inner,.panel.side-r .inner{margin:0 auto;text-align:center}
+    .panel.side .eyebrow,.panel.side-r .eyebrow{justify-content:center}
+    #hud-bl,#hud-br{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="pct">00</div>
+  <div class="lbl">AlloyLogger / initialising stream</div>
+  <div class="bar"><i></i></div>
+</div>
+
+<canvas id="gl"></canvas>
+<div id="grain"></div>
+<div id="cursor"></div><div id="cursor-ring"></div>
+
+<!-- HUD -->
+<div class="hud" id="hud-tl">
+  <div class="word">ALLOYLOGGER<span style="color:var(--blue)">.</span></div>
+  <div class="sub">MCU → Alloy Mesh Storage</div>
+</div>
+<div class="hud" id="hud-tr">
+  <a href="https://github.com/alloyrobotics/alloy-logger-arduino" target="_blank" rel="noopener">GitHub ↗</a>
+  <a href="https://aus.usealloy.ai/setup-org" target="_blank" rel="noopener">Start free ↗</a>
+</div>
+<div class="hud" id="hud-bl">esp32 · i2c 0x28 · 100 Hz</div>
+<div class="hud" id="hud-br">depth <span id="depth-readout">L0 / surface</span></div>
+
+<div id="rail">
+  <div class="tick on"></div><div class="line"></div>
+  <div class="tick"></div><div class="line"></div>
+  <div class="tick"></div><div class="line"></div>
+  <div class="tick"></div><div class="line"></div>
+  <div class="tick"></div><div class="line"></div>
+  <div class="tick"></div>
+</div>
+
+<div id="scroll-cue"><span>Scroll to descend</span><span class="stem"></span></div>
+
+<!-- PANELS -->
+<section class="panel" id="p-hero" data-a="0.00" data-b="0.10">
+  <div class="inner">
+    <h1>ALLOY<span class="thin">LOGGER</span></h1>
+    <div class="tag">The easiest telemetry layer for your microcontroller.<br>
+    <b>Follow one number from the pin to the prompt.</b></div>
+  </div>
+</section>
+
+<section class="panel side" id="p-esp" data-a="0.13" data-b="0.28">
+  <div class="inner">
+    <div class="eyebrow">Layer 01 / ESP32</div>
+    <h2>The wobble happens.</h2>
+    <p>Your control loop reads the IMU over I²C at 100&nbsp;Hz. Each reading lives for one
+    loop tick, then it's overwritten. Without a logger, it's gone.</p>
+    <div class="badge">pitch → <b>8.2°</b> · about to vanish</div>
+  </div>
+</section>
+
+<section class="panel side-r" id="p-lib" data-a="0.31" data-b="0.46">
+  <div class="inner">
+    <div class="eyebrow">Layer 02 / AlloyLogger</div>
+    <h2>The number gets a name.</h2>
+    <p><code>alloy.log("bno055").set("pitch", pitch)</code> memcpys the value into a RAM
+    buffer in microseconds; your loop never blocks. A background task on core&nbsp;0 batches
+    rows and uploads over TLS every 4&nbsp;s, store-and-forward across WiFi drops.
+    No SD card, no flash wear.</p>
+    <div class="badge">bno055.pitch = <b>8.2</b> · buffered · core 0</div>
+  </div>
+</section>
+
+<section class="panel side" id="p-mesh" data-a="0.49" data-b="0.64">
+  <div class="inner">
+    <div class="eyebrow">Layer 03 / Alloy Mesh Storage</div>
+    <h2>It lands on the timeline.</h2>
+    <p>Every power-on becomes one run under your mesh path. When it ends, Alloy assembles
+    one indexed <code>.mcap</code> mission plus a <code>meta.json</code> semantics sidecar:
+    replayable, scrubbable, and queryable in place with SQL.</p>
+    <div class="badge">robots/sbr · run-47 · t+3.4s → <b>8.2°</b></div>
+  </div>
+</section>
+
+<section class="panel side-r" id="p-mcp" data-a="0.67" data-b="0.79">
+  <div class="inner">
+    <div class="eyebrow">Layer 04 / Alloy MCP</div>
+    <h2>Claude reaches in.</h2>
+    <p>One command connects Claude to your mesh: <code>claude mcp add alloy</code>.
+    It gets real tools — <code>list_missions</code>, <code>query_mesh_storage</code> —
+    read-only SQL over every run you have ever streamed. No exports, no CSVs.</p>
+    <div class="badge">SELECT pitch WHERE run = 47 → <b>8.2</b></div>
+  </div>
+</section>
+
+<section class="panel" id="p-ans" data-a="0.82" data-b="0.92">
+  <div class="inner">
+    <div class="eyebrow">Layer 05 / The answer</div>
+    <h2>The number comes back.</h2>
+    <div class="term">
+      <div class="bar-dots"><i></i><i></i><i></i></div>
+      <div class="u">&gt; why did run #47 fall over?</div>
+      <div class="c">⏺ alloy · query_mesh_storage (MCP)</div>
+      <div class="a">⏺ bno055 stalled for 400 ms. The loop ran blind, pitch blew past
+      <span class="hl">8.2°</span>. That's the fall.</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="p-cta" data-a="0.94" data-b="1.00">
+  <div class="inner">
+    <div class="eyebrow" style="justify-content:center">Surface again</div>
+    <h2>Three lines.<br>Every run, forever.</h2>
+    <div class="cta-row">
+      <a class="btn primary" href="https://aus.usealloy.ai/setup-org" target="_blank" rel="noopener">Start streaming free →</a>
+      <a class="btn" href="https://github.com/alloyrobotics/alloy-logger-arduino" target="_blank" rel="noopener">★ View on GitHub</a>
+    </div>
+    <div class="foot">AlloyLogger · MIT · ESP32 / ESP32-S3 · built on <a href="https://usealloy.ai" target="_blank" rel="noopener">Alloy</a></div>
+  </div>
+</section>
+
+<div id="scroll-space"></div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   ALLOYLOGGER — descend the stack
+   One continuous scene. Scroll = camera descends from the ESP32
+   board at the surface, down the telemetry stream, through the
+   layer gates, to the mesh floor — then back out for the CTA.
+   ============================================================ */
+
+const BLUE = new THREE.Color('#025DFE');
+const BLUE_SOFT = new THREE.Color('#3E82FF');
+const WHITE = new THREE.Color('#eef2ff');
+
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#04050a');
+scene.fog = new THREE.FogExp2('#04050a', 0.016);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, .1, 400);
+
+/* ---------------- lights ---------------- */
+scene.add(new THREE.AmbientLight('#182038', 1.2));
+const key = new THREE.PointLight('#4E8CFF', 700, 90, 1.8); key.position.set(8, 14, 10); scene.add(key);
+const rim = new THREE.PointLight('#025DFE', 500, 70, 1.8); rim.position.set(-10, 2, -8); scene.add(rim);
+const camLight = new THREE.PointLight('#2a4fd0', 260, 46, 1.7); scene.add(camLight);
+
+/* ---------------- the board (surface layer) ---------------- */
+const board = new THREE.Group();
+{
+  const pcbMat = new THREE.MeshStandardMaterial({color:'#0a1226', roughness:.45, metalness:.55});
+  const pcb = new THREE.Mesh(new THREE.BoxGeometry(11, .5, 6.4), pcbMat);
+  board.add(pcb);
+
+  // main module (shielded can)
+  const can = new THREE.Mesh(new THREE.BoxGeometry(3.4, .7, 3.0),
+    new THREE.MeshStandardMaterial({color:'#8a93a8', roughness:.25, metalness:.95}));
+  can.position.set(-2.6, .6, 0); board.add(can);
+
+  // chip
+  const chip = new THREE.Mesh(new THREE.BoxGeometry(1.7, .35, 1.7),
+    new THREE.MeshStandardMaterial({color:'#05070d', roughness:.3, metalness:.7}));
+  chip.position.set(1.4, .42, .8); board.add(chip);
+  const chip2 = chip.clone(); chip2.scale.set(.6,.8,.6); chip2.position.set(3.4,.4,-1.2); board.add(chip2);
+
+  // pin headers
+  const pinMat = new THREE.MeshStandardMaterial({color:'#d8b64a', roughness:.35, metalness:1});
+  for (const zSign of [-1, 1]) for (let i = 0; i < 15; i++) {
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,.7,6), pinMat);
+    pin.position.set(-4.9 + i*.7, .5, zSign*2.85); board.add(pin);
+  }
+  // glowing traces
+  const traceMat = new THREE.MeshBasicMaterial({color:BLUE_SOFT});
+  for (let i = 0; i < 7; i++) {
+    const t = new THREE.Mesh(new THREE.BoxGeometry(2.5 + Math.sin(i*3.7)*1.6, .04, .06), traceMat.clone());
+    t.material.transparent = true; t.material.opacity = .5 + (i%3)*.18;
+    t.position.set(-.5 + Math.sin(i*1.9)*2.6, .28, -2 + i*.62);
+    board.add(t);
+  }
+  // status LED
+  const led = new THREE.Mesh(new THREE.SphereGeometry(.13, 12, 12),
+    new THREE.MeshBasicMaterial({color:BLUE}));
+  led.position.set(4.6, .4, 2.1); board.add(led);
+  board.userData.led = led;
+
+  // wireframe halo slightly larger
+  const halo = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(11.6, .9, 7)),
+    new THREE.LineBasicMaterial({color:'#1c3fae', transparent:true, opacity:.45}));
+  board.add(halo);
+}
+board.position.set(0, 0, 0);
+scene.add(board);
+
+/* ---------------- layer gates (rings you fall through) ---------------- */
+const GATE_YS = [-24, -52, -80, -108];         // esp handled at surface; gates = lib, mesh, mcp, answer
+const gates = [];
+for (let g = 0; g < GATE_YS.length; g++) {
+  const grp = new THREE.Group();
+  const R = 9 + g*1.2;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(R, .05, 8, 128),
+    new THREE.MeshBasicMaterial({color:'#1c3fae', transparent:true, opacity:.7}));
+  ring.rotation.x = Math.PI/2; grp.add(ring);
+  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(R*.86, .025, 8, 128),
+    new THREE.MeshBasicMaterial({color:BLUE_SOFT, transparent:true, opacity:.35}));
+  ring2.rotation.x = Math.PI/2; grp.add(ring2);
+  // tick marks
+  const tickGeo = new THREE.BufferGeometry();
+  const tickPos = [];
+  for (let i = 0; i < 48; i++) {
+    const a = i/48 * Math.PI*2;
+    tickPos.push(Math.cos(a)*R*1.06, 0, Math.sin(a)*R*1.06, Math.cos(a)*R*1.12, 0, Math.sin(a)*R*1.12);
+  }
+  tickGeo.setAttribute('position', new THREE.Float32BufferAttribute(tickPos, 3));
+  grp.add(new THREE.LineSegments(tickGeo, new THREE.LineBasicMaterial({color:'#2a4fd0', transparent:true, opacity:.5})));
+  grp.position.y = GATE_YS[g];
+  grp.userData.spin = (g%2 ? -1 : 1) * (0.02 + g*0.006);
+  scene.add(grp); gates.push(grp);
+}
+
+/* ---------------- the stream (particles falling with you) ---------------- */
+const STREAM_N = 5200, STREAM_TOP = 8, STREAM_BOT = -132;
+const streamGeo = new THREE.BufferGeometry();
+{
+  const pos = new Float32Array(STREAM_N*3), col = new Float32Array(STREAM_N*3), spd = new Float32Array(STREAM_N);
+  const c = new THREE.Color();
+  for (let i = 0; i < STREAM_N; i++) {
+    const a = Math.random()*Math.PI*2;
+    const r = 1.2 + Math.pow(Math.random(), 1.6) * 7.5;
+    pos[i*3]   = Math.cos(a)*r;
+    pos[i*3+1] = STREAM_TOP + Math.random()*(STREAM_BOT - STREAM_TOP);
+    pos[i*3+2] = Math.sin(a)*r;
+    spd[i] = 2.2 + Math.random()*7;
+    c.copy(Math.random() < .82 ? BLUE_SOFT : WHITE).multiplyScalar(.5 + Math.random()*.7);
+    col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+  }
+  streamGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  streamGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  streamGeo.userData.spd = spd;
+}
+const stream = new THREE.Points(streamGeo, new THREE.PointsMaterial({
+  size:.09, vertexColors:true, transparent:true, opacity:.9,
+  blending:THREE.AdditiveBlending, depthWrite:false}));
+scene.add(stream);
+
+/* ---------------- the hero particle: 8.2° falling with you ------------- */
+const hero = new THREE.Mesh(new THREE.SphereGeometry(.22, 16, 16),
+  new THREE.MeshBasicMaterial({color:'#ffffff'}));
+const heroGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: makeGlowTexture(), color:BLUE_SOFT, transparent:true,
+  blending:THREE.AdditiveBlending, depthWrite:false}));
+heroGlow.scale.set(3.4, 3.4, 1);
+hero.add(heroGlow);
+scene.add(hero);
+
+function makeGlowTexture(){
+  const s = 128, cv = document.createElement('canvas'); cv.width = cv.height = s;
+  const g = cv.getContext('2d');
+  const gr = g.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(.25, 'rgba(120,160,255,.55)');
+  gr.addColorStop(1, 'rgba(0,20,80,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, s, s);
+  return new THREE.CanvasTexture(cv);
+}
+
+/* ---------------- mesh floor (the storage grid at the bottom) ---------- */
+const FLOOR_Y = -126;
+const floorGrp = new THREE.Group();
+{
+  const SEG = 56, SIZE = 130;
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+  geo.rotateX(-Math.PI/2);
+  const wireGeo = new THREE.WireframeGeometry(geo);
+  const wire = new THREE.LineSegments(wireGeo,
+    new THREE.LineBasicMaterial({color:'#122a72', transparent:true, opacity:.55}));
+  floorGrp.add(wire);
+  floorGrp.userData.wirePos = wireGeo.attributes.position;
+
+  const nodesGeo = new THREE.BufferGeometry();
+  const np = [];
+  for (let i = 0; i < 700; i++) {
+    np.push((Math.random()-.5)*SIZE, Math.random()*.4, (Math.random()-.5)*SIZE);
+  }
+  nodesGeo.setAttribute('position', new THREE.Float32BufferAttribute(np, 3));
+  floorGrp.add(new THREE.Points(nodesGeo, new THREE.PointsMaterial({
+    color:BLUE_SOFT, size:.32, transparent:true, opacity:.8,
+    blending:THREE.AdditiveBlending, depthWrite:false})));
+}
+floorGrp.position.y = FLOOR_Y;
+scene.add(floorGrp);
+
+/* ---------------- ambient dust ---------------- */
+{
+  const N = 900, pos = new Float32Array(N*3);
+  for (let i = 0; i < N; i++) {
+    pos[i*3] = (Math.random()-.5)*90;
+    pos[i*3+1] = STREAM_BOT - 6 + Math.random()*(STREAM_TOP + 26 - STREAM_BOT);
+    pos[i*3+2] = (Math.random()-.5)*90;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({
+    color:'#31406e', size:.14, transparent:true, opacity:.6, depthWrite:false})));
+}
+
+/* ============================================================
+   camera path — keyframes over scroll progress p ∈ [0,1]
+   ============================================================ */
+const PATH = [
+  // p,  cam position,            look target,          fov
+  [0.00, [0, 4.2, 17],            [0, 0.5, 0],          52],   // hero: board portrait
+  [0.13, [7, 1.5, 10],            [0, 0, 0],            50],   // swing around board
+  [0.24, [0, -8, 7.5],            [0, -18, 0],          56],   // tip over the edge, look down
+  [0.38, [4.5, -28, 6],           [0, -36, 0],          58],   // falling past gate 1 (lib)
+  [0.56, [-5, -56, 6.5],          [0, -64, 0],          58],   // gate 2 (mesh)
+  [0.73, [4.5, -84, 6],           [0, -92, 0],          58],   // gate 3 (mcp)
+  [0.86, [0, -110, 8],            [0, -122, 0],         54],   // gate 4 → floor reveal
+  [0.94, [0, -114, 20],           [0, -126, -6],        48],   // pull back over the mesh floor
+  [1.00, [0, -104, 34],           [0, -120, -10],       44],   // cta: wide, floor below
+];
+const ease = t => t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2;
+function samplePath(p){
+  let i = 0;
+  while (i < PATH.length - 2 && p > PATH[i+1][0]) i++;
+  const [pa, A, La, fa] = PATH[i], [pb, B, Lb, fb] = PATH[i+1];
+  const t = ease(THREE.MathUtils.clamp((p - pa)/(pb - pa), 0, 1));
+  const lerp3 = (a, b) => new THREE.Vector3(
+    a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
+  return {pos: lerp3(A, B), look: lerp3(La, Lb), fov: fa+(fb-fa)*t};
+}
+
+/* ============================================================
+   scroll + panels + HUD
+   ============================================================ */
+let scrollTarget = 0, scrollSmooth = 0;
+const maxScroll = () => document.getElementById('scroll-space').offsetHeight - innerHeight;
+addEventListener('scroll', () => { scrollTarget = scrollY / Math.max(1, maxScroll()); }, {passive:true});
+
+const panels = [...document.querySelectorAll('.panel')].map(el => ({
+  el, a: +el.dataset.a, b: +el.dataset.b
+}));
+const ticks = [...document.querySelectorAll('#rail .tick')];
+const depthEl = document.getElementById('depth-readout');
+const DEPTH_LABELS = ['L0 / surface','L1 / esp32','L2 / alloylogger','L3 / mesh storage','L4 / mcp','L5 / answer'];
+const cue = document.getElementById('scroll-cue');
+
+function updateDOM(p){
+  for (const {el, a, b} of panels) {
+    const pad = (b - a) * .28;
+    let o = 0;
+    if (p > a && p < b) {
+      o = Math.min((p - a)/pad, 1, (b - p)/pad);
+      o = THREE.MathUtils.clamp(o, 0, 1);
+    }
+    // hero & cta pin at the extremes
+    if (el.id === 'p-hero' && p <= a + pad) o = Math.min(1, Math.max(o, 1 - p/(a + pad || 1e-9) * 0 + (p < .02 ? 1 : o)));
+    if (el.id === 'p-hero' && p < .02) o = 1;
+    if (el.id === 'p-cta' && p > .985) o = 1;
+    el.style.opacity = o.toFixed(3);
+    el.style.visibility = o > .01 ? 'visible' : 'hidden';
+    const drift = (1 - o) * 26;
+    el.querySelector('.inner').style.transform = `translateY(${p > (a+b)/2 ? -drift : drift}px)`;
+    el.style.pointerEvents = (o > .5 && (el.id === 'p-cta')) ? 'auto' : 'none';
+  }
+  // rail + depth label
+  const zone = p < .11 ? 0 : p < .29 ? 1 : p < .47 ? 2 : p < .65 ? 3 : p < .81 ? 4 : 5;
+  ticks.forEach((t, i) => t.classList.toggle('on', i <= zone));
+  depthEl.textContent = DEPTH_LABELS[zone];
+  cue.style.opacity = p < .04 ? 1 : 0;
+}
+
+/* ---------------- cursor ---------------- */
+const cur = document.getElementById('cursor'), curRing = document.getElementById('cursor-ring');
+let mx = innerWidth/2, my = innerHeight/2, rx = mx, ry = my;
+addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cur.style.transform = `translate(${mx-5}px,${my-5}px)`;
+  const hot = e.target.closest('a,button');
+  cur.classList.toggle('hot', !!hot);
+});
+
+/* ---------------- resize ---------------- */
+function resize(){
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+/* ---------------- loader ---------------- */
+const loader = document.getElementById('loader');
+const pctEl = loader.querySelector('.pct'), barEl = loader.querySelector('.bar i');
+let loadT = 0, loaded = false;
+
+/* ---------------- main loop ---------------- */
+const clock = new THREE.Clock();
+const lookSmooth = new THREE.Vector3(0, .5, 0);
+const posSmooth = new THREE.Vector3(0, 4.2, 17);
+
+function frame(){
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), .05);
+  const T = clock.elapsedTime;
+
+  // fake-but-honest loader (assets are procedural; gate on first frames)
+  if (!loaded) {
+    loadT = Math.min(T/1.1, 1);
+    const pct = Math.floor(loadT*100);
+    pctEl.textContent = String(pct).padStart(2, '0');
+    barEl.style.width = pct + '%';
+    if (loadT >= 1) { loaded = true; loader.classList.add('done'); }
+  }
+
+  scrollSmooth += (scrollTarget - scrollSmooth) * Math.min(1, dt*4.5);
+  const p = THREE.MathUtils.clamp(scrollSmooth, 0, 1);
+
+  // camera
+  const {pos, look, fov} = samplePath(p);
+  // mouse parallax
+  const par = 1 - Math.min(p*8, 1)*.4;
+  pos.x += (mx/innerWidth - .5) * 2.2 * par;
+  pos.y -= (my/innerHeight - .5) * 1.4 * par;
+  posSmooth.lerp(pos, Math.min(1, dt*5));
+  lookSmooth.lerp(look, Math.min(1, dt*5));
+  camera.position.copy(posSmooth);
+  camera.lookAt(lookSmooth);
+  camera.fov += (fov - camera.fov) * Math.min(1, dt*5);
+  camera.updateProjectionMatrix();
+  camLight.position.copy(posSmooth).add(new THREE.Vector3(0, 2, 2));
+
+  // board idle
+  board.rotation.y = Math.sin(T*.22)*.1;
+  board.rotation.z = Math.sin(T*.15)*.03;
+  board.position.y = Math.sin(T*.6)*.18;
+  board.userData.led.material.color.setHSL(.6, 1, .5 + Math.sin(T*6)*.35);
+
+  // gates spin
+  for (const g of gates) g.rotation.y += g.userData.spin * dt * 12;
+
+  // stream falls
+  {
+    const posA = streamGeo.attributes.position, spd = streamGeo.userData.spd;
+    for (let i = 0; i < STREAM_N; i++) {
+      let y = posA.getY(i) - spd[i]*dt;
+      if (y < STREAM_BOT) y = STREAM_TOP;
+      posA.setY(i, y);
+    }
+    posA.needsUpdate = true;
+    stream.rotation.y += dt*.05;
+  }
+
+  // hero particle rides just ahead of the camera lookpoint
+  {
+    const hy = THREE.MathUtils.lerp(1.2, FLOOR_Y + 3, THREE.MathUtils.clamp((p - .1)/.78, 0, 1));
+    hero.position.set(Math.sin(T*.8)*1.1, hy + Math.sin(T*1.7)*.4, Math.cos(T*.8)*1.1);
+    const s = 1 + Math.sin(T*3)*.15;
+    heroGlow.scale.set(3.4*s, 3.4*s, 1);
+  }
+
+  // floor ripple — deform the wireframe's own vertex buffer in place
+  {
+    const pa = floorGrp.userData.wirePos;
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i), z = pa.getZ(i);
+      pa.setY(i, Math.sin(x*.25 + T*.9)*.5 + Math.cos(z*.3 + T*.7)*.5);
+    }
+    pa.needsUpdate = true;
+  }
+
+  // fog thickens mid-descent, clears at floor
+  const mid = Math.sin(Math.min(p, .9)/.9 * Math.PI);
+  scene.fog.density = .014 + mid*.012;
+
+  updateDOM(p);
+  renderer.render(scene, camera);
+}
+frame();
+</script>
+</body>
+</html>
