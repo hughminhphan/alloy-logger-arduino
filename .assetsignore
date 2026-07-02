@@ -1,0 +1,20 @@
+cloud/
+.git/
+.obsidian/
+.vercel/
+.vercelignore
+.wrangler/
+.gitignore
+.assetsignore
+wrangler.jsonc
+site-worker.js
+NOTES.md
+COMPETITORS.md
+Launch Video.md
+Landing page render.md
+Landing page structure.md
+src/
+examples/
+library.properties
+LICENSE
+README.md

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  // AlloyLogger landing page — assets-only Worker (no script). Ingest lives in cloud/.
+  "name": "alloylogger-site",
+  "compatibility_date": "2026-07-02",
+  "routes": [
+    { "pattern": "alloylogger.com", "custom_domain": true },
+    { "pattern": "www.alloylogger.com", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "main": "site-worker.js",
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "observability": {
+    "enabled": true
+  }
+}
