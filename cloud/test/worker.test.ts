@@ -4,7 +4,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   env,
-  fetchMock,
   runDurableObjectAlarm,
   runInDurableObject,
   SELF,
@@ -14,7 +13,7 @@ const GOOD_KEY = "test-key-good";
 const BAD_KEY = "test-key-bad";
 const DEVICE = "esp32-abc123";
 const MESH = "robots/test";
-// storage is shared across tests (see vitest.workers.config.ts) — a unique session per test
+// storage is shared across tests within this file — a unique session per test
 // keeps DO instances and staging keys from colliding
 let sessionCounter = 1782000000;
 let SESSION = "";
@@ -35,8 +34,9 @@ const uploadSessionBody = () => ({
 // PUTs into the mocked mesh, keyed by path — lets tests assert what landed
 let meshPuts: string[] = [];
 
-// intercepts persist across tests (fetchMock has no per-test reset here), so they are
-// registered once and consult module-level knobs
+// the mock fetch persists across tests, so it is installed once and consults
+// module-level knobs (fetchMock was removed in vitest-pool-workers 0.13; the main
+// worker + DO run in the same isolate as tests, so patching globalThis.fetch applies)
 let failsLeft = 0;
 let mocksRegistered = false;
 
@@ -44,36 +44,28 @@ function mockAlloy(opts: { failPuts?: number } = {}) {
   failsLeft = opts.failPuts ?? 0;
   if (mocksRegistered) return;
   mocksRegistered = true;
-  fetchMock
-    .get("https://alloy.mock")
-    .intercept({
-      path: "/mesh/storage/upload-session",
-      method: "POST",
-      headers: { Authorization: `Bearer ${GOOD_KEY}` },
-    })
-    .reply(200, () => uploadSessionBody())
-    .persist();
-  fetchMock
-    .get("https://alloy.mock")
-    .intercept({
-      path: "/mesh/storage/upload-session",
-      method: "POST",
-      headers: { Authorization: `Bearer ${BAD_KEY}` },
-    })
-    .reply(403, "forbidden")
-    .persist();
-  fetchMock
-    .get("https://r2.mock")
-    .intercept({ path: /.*/, method: "PUT" })
-    .reply((req: { origin: string; path: string }) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init);
+    const url = new URL(req.url);
+    if (url.origin === "https://alloy.mock") {
+      if (url.pathname === "/mesh/storage/upload-session" && req.method === "POST") {
+        if (req.headers.get("Authorization") === `Bearer ${GOOD_KEY}`) {
+          return Response.json(uploadSessionBody());
+        }
+        return new Response("forbidden", { status: 403 });
+      }
+      return new Response("not found", { status: 404 });
+    }
+    if (url.origin === "https://r2.mock" && req.method === "PUT") {
       if (failsLeft > 0) {
         failsLeft--;
-        return { statusCode: 500, data: "injected failure" };
+        return new Response("injected failure", { status: 500 });
       }
-      meshPuts.push(new URL(req.origin + req.path).pathname);
-      return { statusCode: 200, data: "" };
-    })
-    .persist();
+      meshPuts.push(url.pathname);
+      return new Response("", { status: 200 });
+    }
+    throw new Error(`unmocked outbound fetch: ${req.method} ${req.url}`);
+  }) as typeof fetch;
 }
 
 function post(
@@ -143,8 +135,6 @@ async function sessionStub() {
 beforeEach(() => {
   SESSION = String(sessionCounter++);
   meshPuts = [];
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
 });
 
 describe("worker routing + auth", () => {
