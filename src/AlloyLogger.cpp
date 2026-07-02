@@ -354,7 +354,7 @@ void AlloyLogger::taskLoop() {
 
   // Each power-on gets its OWN folder under meshPath (a separate mission in Alloy).
   String sessionMesh = String(_meshPath) + "/" + String(_session);
-  if (!_direct) _cloud.session(_devId, _session, _meshPath);
+  if (!_direct) _cloud.session(_devId, _session, _meshPath, _finalizeMs);
 
   // upload the semantics sidecar first (Alloy ingests metadata before data)
   String meta = buildMetaJson();

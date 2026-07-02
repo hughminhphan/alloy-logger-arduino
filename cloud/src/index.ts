@@ -37,6 +37,9 @@ export default {
     if (!SESSION_RE.test(session)) return bad("bad X-Alloy-Session");
     if (!MESH_RE.test(meshPath)) return bad("bad X-Alloy-Mesh-Path");
 
+    const finalizeMs = req.headers.get("X-Alloy-Finalize-Ms");
+    if (finalizeMs !== null && !/^\d{4,8}$/.test(finalizeMs)) return bad("bad X-Alloy-Finalize-Ms");
+
     const len = Number(req.headers.get("Content-Length") ?? "0");
     if (url.pathname === "/v1/chunk") {
       const channel = req.headers.get("X-Alloy-Channel") ?? "";

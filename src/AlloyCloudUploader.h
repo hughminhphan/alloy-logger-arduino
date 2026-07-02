@@ -29,8 +29,8 @@ public:
   }
 
   // Pin the run identity once the SNTP clock has landed (session = epoch seconds at boot).
-  void session(const char* devId, uint32_t session, const char* meshPath) {
-    _dev = devId; _session = session; _mesh = meshPath;
+  void session(const char* devId, uint32_t session, const char* meshPath, uint32_t finalizeMs = 0) {
+    _dev = devId; _session = session; _mesh = meshPath; _finalizeMs = finalizeMs;
   }
 
   bool postChunk(const uint8_t* data, size_t len, const char* chan, uint32_t seq) {
@@ -47,7 +47,7 @@ public:
 
 private:
   String _url, _key, _dev, _mesh;
-  uint32_t _session = 0;
+  uint32_t _session = 0, _finalizeMs = 0;
   bool _insecure = false;
   int _last = 0;
   // Persistent keep-alive connection + HTTPClient, same discipline as AlloyUploader: a verified
@@ -74,6 +74,7 @@ private:
     _http.addHeader("X-Alloy-Device", _dev);
     _http.addHeader("X-Alloy-Session", String(_session));
     _http.addHeader("X-Alloy-Mesh-Path", _mesh);
+    if (_finalizeMs) _http.addHeader("X-Alloy-Finalize-Ms", String(_finalizeMs));
     if (chan) {
       _http.addHeader("X-Alloy-Channel", chan);
       _http.addHeader("X-Alloy-Seq", String(seq));

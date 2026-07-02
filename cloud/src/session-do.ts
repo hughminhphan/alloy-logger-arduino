@@ -13,6 +13,10 @@ import type { DeviceMeta, Env } from "./types";
 
 const MAX_FINALIZE_ATTEMPTS = 10;
 const RATE_LIMIT_PER_MIN = 120;
+// Bounds for the device-chosen inactivity window (X-Alloy-Finalize-Ms). The floor protects a run
+// from being split by a routine WiFi hiccup; the ceiling bounds how long staged data can idle.
+const FINALIZE_MS_MIN = 30_000;
+const FINALIZE_MS_MAX = 30 * 60_000;
 
 interface State {
   phase: "receiving" | "finalizing" | "done";
@@ -23,6 +27,7 @@ interface State {
   meshPath: string;
   lastChunkAt: number;
   finalizeAttempts: number;
+  inactivityMs: number;
 }
 
 export class SessionDO implements DurableObject {
@@ -63,6 +68,8 @@ export class SessionDO implements DurableObject {
     if (!s) {
       // first request of the run — pin identity + the key we'll need at finalize time
       const apiKey = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+      const wantMs = Number(req.headers.get("X-Alloy-Finalize-Ms") ?? this.env.INACTIVITY_MS);
+      const inactivityMs = Math.min(FINALIZE_MS_MAX, Math.max(FINALIZE_MS_MIN, wantMs || 0));
       s = {
         phase: "receiving",
         apiKey,
@@ -72,6 +79,7 @@ export class SessionDO implements DurableObject {
         meshPath: req.headers.get("X-Alloy-Mesh-Path")!,
         lastChunkAt: Date.now(),
         finalizeAttempts: 0,
+        inactivityMs,
       };
       await this.ctx.storage.put("state", s);
     }
@@ -99,7 +107,9 @@ export class SessionDO implements DurableObject {
   private async armAlarm(s: State): Promise<void> {
     s.lastChunkAt = Date.now();
     await this.ctx.storage.put("state", s);
-    await this.ctx.storage.setAlarm(Date.now() + Number(this.env.INACTIVITY_MS));
+    await this.ctx.storage.setAlarm(
+      Date.now() + (s.inactivityMs || Number(this.env.INACTIVITY_MS)),
+    );
   }
 
   private async onChunk(req: Request, s: State): Promise<Response> {

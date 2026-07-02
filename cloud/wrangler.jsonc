@@ -14,7 +14,7 @@
   "r2_buckets": [{ "binding": "STAGING", "bucket_name": "alloylogger-staging" }],
   "vars": {
     "ALLOY_DATA_URL": "https://data.usealloy.ai",
-    "INACTIVITY_MS": "600000"
+    "INACTIVITY_MS": "120000"
   },
   "observability": { "enabled": true }
 }

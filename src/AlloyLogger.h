@@ -90,6 +90,9 @@ public:
   // direct() opts back into the legacy device→R2 SigV4 path (per-channel CSVs, tables only).
   AlloyLogger& direct(bool on = true) { _direct = on; return *this; }
   AlloyLogger& ingestUrl(const char* url) { _ingestUrl = url; return *this; }
+  // How long after the last data the cloud waits before declaring the run over and finalizing
+  // its .mcap (cloud mode; server default 2 min, clamped server-side to 30s..30min).
+  AlloyLogger& finalizeAfter(uint32_t seconds) { _finalizeMs = seconds * 1000UL; return *this; }
 
   // ---- v2: automatic capture (set-and-forget) ----
   // Register a signal ONCE (must be before begin(); later calls are ignored) and the library
@@ -168,6 +171,7 @@ private:
   bool     _insecure = false;
   bool     _direct = false;
   const char* _ingestUrl = "https://ingest.alloylogger.com";
+  uint32_t _finalizeMs = 0;   // 0 = server default
 
   // describe() store
   struct Desc { char chan[24], field[20], unit[12], about[48]; float lo, hi; };

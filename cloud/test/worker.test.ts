@@ -234,6 +234,40 @@ describe("session lifecycle", () => {
     expect((await post("/v1/end", null)).status).toBe(204);
   });
 
+  it("honors X-Alloy-Finalize-Ms (clamped) for the inactivity window", async () => {
+    mockAlloy();
+    await chunk("io", 0, "t_ns,btn\n0000000000000000100,1\n"); // no header → env default
+    let st = (await runInDurableObject(
+      await sessionStub(),
+      (_i: unknown, state: DurableObjectState) => state.storage.get("state"),
+    )) as { inactivityMs: number };
+    expect(st.inactivityMs).toBe(600000);
+
+    SESSION = String(sessionCounter++); // fresh session with an explicit 45s ask → clamped to 30s floor... 45s is above floor
+    await post("/v1/chunk", "t_ns,btn\n0000000000000000100,1\n", {
+      "X-Alloy-Channel": "io",
+      "X-Alloy-Seq": "0",
+      "X-Alloy-Finalize-Ms": "45000",
+    });
+    st = (await runInDurableObject(
+      await sessionStub(),
+      (_i: unknown, state: DurableObjectState) => state.storage.get("state"),
+    )) as { inactivityMs: number };
+    expect(st.inactivityMs).toBe(45000);
+
+    SESSION = String(sessionCounter++); // below the 30s floor → clamped up
+    await post("/v1/chunk", "t_ns,btn\n0000000000000000100,1\n", {
+      "X-Alloy-Channel": "io",
+      "X-Alloy-Seq": "0",
+      "X-Alloy-Finalize-Ms": "1000",
+    });
+    st = (await runInDurableObject(
+      await sessionStub(),
+      (_i: unknown, state: DurableObjectState) => state.storage.get("state"),
+    )) as { inactivityMs: number };
+    expect(st.inactivityMs).toBe(30000);
+  });
+
   it("finalizes on the inactivity alarm (power-loss path)", async () => {
     mockAlloy();
     await chunk("adc", 0, "t_ns,v\n0000000000000000100,3.3\n");
