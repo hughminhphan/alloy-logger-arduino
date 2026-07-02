@@ -28,6 +28,9 @@ void setup() {
   alloy.begin(ALLOY_KEY, "robots/sbr");
 
   xTaskCreatePinnedToCore(controlLoop, "control", 8192, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
+
+  // On a kill switch / end of a scripted run, alloy.end() finalizes the mission .mcap immediately.
+  // Without it the run finalizes ~10 min after the last data (power loss is handled server-side).
 }
 
 void loop() { delay(1000); }

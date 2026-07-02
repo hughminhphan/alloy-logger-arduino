@@ -173,8 +173,10 @@ bool AlloyLogger::begin(const char* apiKey, const char* meshPath, const char* da
   }
   if (WiFi.status() != WL_CONNECTED) return false;
 
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");   // UTC — SigV4 needs a real clock
-  _up.begin(dataUrl, apiKey, _insecure);
+  // UTC clock: cloud mode needs it for t_ns stamps + the session id; direct mode also for SigV4
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  if (_direct) _up.begin(dataUrl, apiKey, _insecure);
+  else         _cloud.begin(_ingestUrl, apiKey, _insecure);
 
   _pool = new Buf[_nBuf]();
   _freeQ = xQueueCreate(_nBuf, sizeof(Buf*));
@@ -319,6 +321,26 @@ void AlloyLogger::rebaseRows(Buf* b) {
   }
 }
 
+// Graceful end-of-run: seal everything, give the uploader a bounded window to drain, then ask
+// the cloud service to finalize the .mcap immediately (instead of the ~10 min inactivity wait).
+void AlloyLogger::end(uint32_t drainMs) {
+  if (!_started || _direct) return;
+
+  xSemaphoreTake(_mtx, portMAX_DELAY);
+  for (uint8_t i = 0; i < _nSlots; i++) {
+    Slot& s = _slots[i];
+    if (s.active && s.active->len > 0) { seal(s.active); s.active = nullptr; }
+  }
+  xSemaphoreGive(_mtx);
+
+  uint32_t t0 = millis();
+  while (millis() - t0 < drainMs && uxQueueMessagesWaiting(_pendingQ) > 0)
+    vTaskDelay(pdMS_TO_TICKS(50));
+  vTaskDelay(pdMS_TO_TICKS(500));   // grace for a PUT the task already dequeued
+
+  _cloud.postEnd();
+}
+
 void AlloyLogger::taskTramp(void* self) { static_cast<AlloyLogger*>(self)->taskLoop(); }
 
 void AlloyLogger::taskLoop() {
@@ -332,12 +354,16 @@ void AlloyLogger::taskLoop() {
 
   // Each power-on gets its OWN folder under meshPath (a separate mission in Alloy).
   String sessionMesh = String(_meshPath) + "/" + String(_session);
+  if (!_direct) _cloud.session(_devId, _session, _meshPath);
 
   // upload the semantics sidecar first (Alloy ingests metadata before data)
   String meta = buildMetaJson();
   char fn[64]; snprintf(fn, sizeof(fn), "%s_meta.json", _devId);
   for (int a = 0; a <= 3; a++) {
-    if (_up.uploadBuffer((const uint8_t*)meta.c_str(), meta.length(), fn, sessionMesh.c_str(), "application/json")) break;
+    bool ok = _direct
+      ? _up.uploadBuffer((const uint8_t*)meta.c_str(), meta.length(), fn, sessionMesh.c_str(), "application/json")
+      : _cloud.postMeta((const uint8_t*)meta.c_str(), meta.length());
+    if (ok) break;
     vTaskDelay(pdMS_TO_TICKS(1000UL << a));
   }
 
@@ -345,13 +371,17 @@ void AlloyLogger::taskLoop() {
   for (;;) {
     if (xQueueReceive(_pendingQ, &b, pdMS_TO_TICKS(250)) == pdTRUE) {
       rebaseRows(b);
-      snprintf(fn, sizeof(fn), "%s_%s_%lu.csv", _devId, b->chan, (unsigned long)_seq++);
-      bool ok = false;
+      uint32_t seq = _seq++;                 // once per buffer — retries must reuse it (dedupe key)
+      snprintf(fn, sizeof(fn), "%s_%s_%lu.csv", _devId, b->chan, (unsigned long)seq);
+      bool ok = false, stale = false;
       for (int a = 0; a <= 4 && !ok; a++) {
         if (a) vTaskDelay(pdMS_TO_TICKS(1000UL << (a - 1)));
-        ok = _up.uploadBuffer((const uint8_t*)b->data, b->len, fn, sessionMesh.c_str(), "text/csv");
+        ok = _direct
+          ? _up.uploadBuffer((const uint8_t*)b->data, b->len, fn, sessionMesh.c_str(), "text/csv")
+          : _cloud.postChunk((const uint8_t*)b->data, b->len, b->chan, seq);
+        if (!ok && !_direct && _cloud.last() == 409) { stale = true; break; }  // session finalized — terminal
       }
-      if (ok) _uploaded++; else _failed++;
+      if (ok) _uploaded++; else if (stale) _stale++; else _failed++;
       b->len = 0; xQueueSend(_freeQ, &b, 0);
     } else {
       xSemaphoreTake(_mtx, portMAX_DELAY);

@@ -26,6 +26,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "AlloyUploader.h"
+#include "AlloyCloudUploader.h"
 
 #ifndef ALLOY_CHAN_MAX
 #define ALLOY_CHAN_MAX 24         // max bytes in a channel name
@@ -84,6 +85,11 @@ public:
   // Escape hatch for networks where TLS verification can't work (TLS-intercepting proxies etc.).
   // Default is full verification against the ESP32 core's embedded Mozilla root CA bundle.
   AlloyLogger& insecure(bool on = true) { _insecure = on; return *this; }
+  // Default transport is AlloyLogger Cloud (ingest.alloylogger.com): the service assembles each
+  // power-on into ONE indexed .mcap in your mesh (Replay/Inspect/SQL/missions all light up).
+  // direct() opts back into the legacy device→R2 SigV4 path (per-channel CSVs, tables only).
+  AlloyLogger& direct(bool on = true) { _direct = on; return *this; }
+  AlloyLogger& ingestUrl(const char* url) { _ingestUrl = url; return *this; }
 
   // ---- v2: automatic capture (set-and-forget) ----
   // Register a signal ONCE (must be before begin(); later calls are ignored) and the library
@@ -109,10 +115,16 @@ public:
   AlloyRecord log(const char* channel) { return AlloyRecord(this, channel); }
   void log(const char* channel, float value) { AlloyRecord(this, channel).set("value", value); }
 
+  // Graceful end-of-run (cloud mode): seals open buffers, drains uploads (bounded), then tells
+  // the service to finalize the .mcap now instead of after the ~10 min inactivity window.
+  // Optional — power loss is handled server-side. No-op in direct mode.
+  void end(uint32_t drainMs = 8000);
+
   // ---- stats ----
   uint32_t uploaded() const { return _uploaded; }
   uint32_t failed() const { return _failed; }
   uint32_t dropped() const { return _droppedBufs; }   // buffers shed under backpressure
+  uint32_t stale() const { return _stale; }           // chunks refused post-finalize (cloud 409)
 
   uint64_t nowNs();   // wall-clock ns (gettimeofday); used to stamp records
 
@@ -154,6 +166,8 @@ private:
   int      _core = 0;
   uint32_t _sampleMs = 100;
   bool     _insecure = false;
+  bool     _direct = false;
+  const char* _ingestUrl = "https://ingest.alloylogger.com";
 
   // describe() store
   struct Desc { char chan[24], field[20], unit[12], about[48]; float lo, hi; };
@@ -163,7 +177,8 @@ private:
   Watch   _watch[ALLOY_MAX_WATCH]; uint8_t _nWatch = 0;
 
   // runtime
-  AlloyUploader _up;
+  AlloyUploader      _up;     // direct mode
+  AlloyCloudUploader _cloud;  // cloud mode (default)
   Buf*          _pool = nullptr;
   QueueHandle_t _freeQ = nullptr, _pendingQ = nullptr;
   SemaphoreHandle_t _mtx = nullptr;
@@ -171,6 +186,6 @@ private:
   uint64_t      _bootOffsetNs = 0;   // wall-clock minus boot-clock ns, captured once SNTP lands
   uint32_t      _session = 0, _seq = 0;
   char          _devId[24] = {0};
-  volatile uint32_t _uploaded = 0, _failed = 0, _droppedBufs = 0;
+  volatile uint32_t _uploaded = 0, _failed = 0, _droppedBufs = 0, _stale = 0;
   bool          _started = false;
 };

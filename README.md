@@ -2,7 +2,8 @@
 
 Stream Arduino sensor & telemetry data **straight to [Alloy](https://usealloy.ai)** from an ESP32 —
 in about ten lines. You log `name → value` pairs at the call site; the library RAM-buffers them and
-uploads CSV to Alloy in the background. **No SD card, no flash wear, never blocks your loop.**
+uploads to Alloy in the background. **Every power-on lands in Alloy as one MCAP mission**: replay it,
+scrub it, query it with SQL, ask about it over MCP. **No SD card, no flash wear, never blocks your loop.**
 
 You usually don't declare anything: Alloy's AI reasons over your tag + field names + values (a
 `heading` ranging 0–360 under a `bno055` tag → it's a magnetic heading). Optionally `describe()` a
@@ -40,7 +41,8 @@ void loop() {
 - **Reliable by default.** RAM-buffered with **store-and-forward** — if WiFi drops, buffers queue and
   flush on reconnect; if the uplink can't keep up, the oldest buffer is shed (counted), never a crash.
 - **Zero flash wear.** Nothing touches the filesystem, so it coexists with OTA / `min_spiffs` layouts.
-- **Alloy-native.** Streams compact per-channel CSV (ingested into queryable tables) plus a one-time semantics sidecar.
+- **Alloy-native.** Each run becomes one indexed `.mcap` in your mesh: Replay/Inspect, mission
+  summaries, and SQL all work out of the box, plus a one-time semantics sidecar for Alloy AI.
 
 ---
 
@@ -76,6 +78,8 @@ AlloyLogger alloy;
 | `alloy.flushEvery(ms)` | Max time before a partial buffer is sent. | `4000` |
 | `alloy.describe(channel, field, unit, min, max, about)` | Richer semantics for Alloy AI. | — |
 | `alloy.insecure()` | Skip TLS verification (TLS-intercepting proxies etc.). | verify via Mozilla roots |
+| `alloy.direct()` | Legacy transport: SigV4 CSV chunks straight to your mesh, no MCAP assembly. | cloud |
+| `alloy.ingestUrl(url)` | Override the AlloyLogger Cloud endpoint. | `https://ingest.alloylogger.com` |
 
 **Start:**
 ```cpp
@@ -112,30 +116,47 @@ alloy.begin(ALLOY_KEY, "demos/auto");       // register before begin(); sampler 
 Watched fields sharing a channel are written as one aligned row per tick — same CSV tables, same
 `describe()` semantics. Mix freely with explicit `log()` calls.
 
-**Stats:** `alloy.uploaded()`, `alloy.failed()`, `alloy.dropped()` (buffers shed under backpressure).
+**End of run (optional):**
+```cpp
+alloy.end();   // seal + drain + finalize the mission .mcap now
+```
+Without it, the run finalizes automatically ~10 minutes after the last data (power loss is detected
+server-side, which is the only place it can be). `end()` just makes the mission appear immediately,
+e.g. on a kill switch or at the end of a scripted test.
+
+**Stats:** `alloy.uploaded()`, `alloy.failed()`, `alloy.dropped()` (buffers shed under backpressure),
+`alloy.stale()` (chunks refused because the run had already finalized).
 
 ---
 
-## What Alloy receives
+## How it gets to Alloy
 
-A one-time **`meta.json`** (from your `describe()` calls + device info):
-```json
-{ "device":"sbr-01", "firmware":"fw16", "session":"2026-06-29T06:48:14Z",
-  "fields":[ {"channel":"env","name":"temp_c","unit":"degC","min":-40,"max":125,"about":"ambient temperature"} ] }
-```
-Then compact **CSV** data, one file per channel: a one-line header (`t_ns` + your field names),
-then bare value rows, wall-clock-timestamped so channels align with no extra math:
+The device streams compact **per-channel CSV chunks**: a one-line header (`t_ns` + your field
+names), then bare value rows, wall-clock-timestamped so channels align with no extra math:
 ```csv
 t_ns,temp_c,humidity
 1782715694000000000,22.4,51.2
 1782715695000000000,22.5,51.1
 ```
-One channel = one consistent schema = one table. Dropping the per-row JSON keys roughly halves the
-bytes on the wire and storage, and takes the per-field text formatting off your hot loop.
+Dropping per-row JSON keys roughly halves the bytes on the wire and takes per-field text formatting
+off your hot loop. One channel = one consistent schema.
 
-Each power-on uploads into its **own subfolder** `<meshPath>/<session>/` (files named
-`<device>_<channel>_<seq>.csv`), so every run is a distinct mission in Alloy. `.csv` ingests
-natively into queryable tables — replay it, or query with SQL / DuckDB.
+Chunks go to **AlloyLogger Cloud** (`ingest.alloylogger.com`) over plain keep-alive HTTPS. The
+service stages them and, when the run ends (`alloy.end()` or ~10 min of silence), assembles **one
+indexed `.mcap`** and uploads it into *your* Alloy mesh at `<meshPath>/<session>/`, together with
+the **`meta.json`** semantics sidecar built from your `describe()` calls:
+```json
+{ "device":"sbr-01", "firmware":"fw16", "session":"2026-06-29T06:48:14Z",
+  "fields":[ {"channel":"env","name":"temp_c","unit":"degC","min":-40,"max":125,"about":"ambient temperature"} ] }
+```
+Every power-on = one mission in Alloy: replayable, inspectable, SQL-queryable, visible to
+`list_missions` and the rest of the Alloy MCP surface.
+
+**Privacy note:** in cloud mode your telemetry and API key transit the AlloyLogger Cloud service.
+Chunks are staged only until the run's `.mcap` is uploaded, and the key is held only for the
+session's lifetime, then purged. If you'd rather not have a middleman, `alloy.direct()` uploads
+SigV4-signed CSV chunks straight from the device to your mesh (queryable tables, but no per-run
+MCAP, replay, or mission view).
 
 ---
 
@@ -153,7 +174,8 @@ natively into queryable tables — replay it, or query with SQL / DuckDB.
 - **Sustained rate is bounded by upload throughput** (~one R2 PUT per buffer over WiFi). A few hundred
   records/sec is comfortable; far higher sheds oldest buffers (counted in `dropped()`). Tune with
   `buffers()` / `flushEvery()`, or use an ESP32-S3 / better WiFi.
-- **A real UTC clock is required** (SigV4) — the library runs SNTP automatically. Records logged
+- **A real UTC clock is required** (timestamps + session ids; SigV4 in direct mode) — the library
+  runs SNTP automatically. Records logged
   before the first sync are stamped with a boot-relative clock and rebased to wall-clock time
   in-buffer once SNTP lands, so nothing is lost or mis-timed.
 - **TLS is verified by default** against the ESP32 core's embedded Mozilla root CA bundle (no extra

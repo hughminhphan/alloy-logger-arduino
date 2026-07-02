@@ -1,0 +1,20 @@
+{
+  // AlloyLogger Cloud — multi-tenant ingest: ESP32 CSV chunks in, one MCAP per run out.
+  "name": "alloylogger-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  // Custom domain provisions automatically once the alloylogger.com zone is on Cloudflare.
+  // Until the zone move completes, deploys go to workers.dev (uncomment after DNS cutover).
+  // "routes": [{ "pattern": "ingest.alloylogger.com", "custom_domain": true }],
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "SESSION_DO", "class_name": "SessionDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionDO"] }],
+  "r2_buckets": [{ "binding": "STAGING", "bucket_name": "alloylogger-staging" }],
+  "vars": {
+    "ALLOY_DATA_URL": "https://data.usealloy.ai",
+    "INACTIVITY_MS": "600000"
+  },
+  "observability": { "enabled": true }
+}
